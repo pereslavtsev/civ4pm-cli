@@ -1,0 +1,84 @@
+{
+  "name": "civ4pm-cli",
+  "version": "0.1.0",
+  "author": "Vitaly Pereslavtsev @pereslavtsev",
+  "bin": {
+    "civ4pm": "./bin/run"
+  },
+  "bugs": "https://github.com/pereslavtsev/civ4pm-cli/issues",
+  "dependencies": {
+    "@oclif/command": "^1",
+    "@oclif/config": "^1",
+    "@oclif/plugin-help": "^3",
+    "chalk": "^4.1.1",
+    "cli-progress": "^3.9.0",
+    "conf": "^10.0.1",
+    "content-disposition": "^0.5.3",
+    "fast-glob": "^3.2.5",
+    "request": "^2.88.2",
+    "tmp-promise": "^3.0.2",
+    "tslib": "^1",
+    "url-parse": "^1.5.1",
+    "wmic": "^1.0.0"
+  },
+  "devDependencies": {
+    "@oclif/dev-cli": "^1",
+    "@oclif/test": "^1",
+    "@types/chai": "^4",
+    "@types/cli-progress": "^3.9.1",
+    "@types/content-disposition": "^0.5.3",
+    "@types/mocha": "^5",
+    "@types/node": "^10",
+    "@types/request": "^2.48.5",
+    "@types/url-parse": "^1.4.3",
+    "chai": "^4",
+    "eslint": "^5.13",
+    "eslint-config-oclif": "^3.1",
+    "eslint-config-oclif-typescript": "^0.1",
+    "globby": "^10",
+    "mocha": "^5",
+    "nyc": "^14",
+    "rimraf": "^3.0.2",
+    "ts-node": "^8",
+    "typescript": "^3.3"
+  },
+  "engines": {
+    "node": ">=10.1.0"
+  },
+  "files": [
+    "/bin",
+    "/lib",
+    "/npm-shrinkwrap.json",
+    "/oclif.manifest.json"
+  ],
+  "homepage": "https://github.com/pereslavtsev/civ4pm-cli",
+  "keywords": [
+    "oclif"
+  ],
+  "license": "MIT",
+  "main": "lib/index.js",
+  "oclif": {
+    "topics": {
+      "beyondthesword": {
+        "description": "manage heroku config variables"
+      },
+      "warlords": {
+        "description": "manage heroku config variables"
+      }
+    },
+    "commands": "./lib/commands",
+    "bin": "civ4pm",
+    "plugins": [
+      "@oclif/plugin-help"
+    ]
+  },
+  "repository": "pereslavtsev/civ4pm-cli",
+  "scripts": {
+    "postpack": "rimraf oclif.manifest.json",
+    "posttest": "eslint . --ext .ts --config .eslintrc",
+    "prepack": "rimraf lib && tsc -b && oclif-dev manifest && oclif-dev readme",
+    "test": "nyc --extension .ts mocha --forbid-only \"test/**/*.test.ts\"",
+    "version": "oclif-dev readme && git add README.md"
+  },
+  "types": "lib/index.d.ts"
+}
