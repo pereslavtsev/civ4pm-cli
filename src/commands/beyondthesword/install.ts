@@ -1,7 +1,7 @@
 import {Command} from '@oclif/command'
 import Conf from 'conf'
-import cliProgress from 'cli-progress'
-import request from 'request'
+import {SingleBar, Presets} from 'cli-progress'
+import request, {Response} from 'request'
 import fs from 'fs'
 import Url from 'url-parse'
 import {CFPackage} from '../../classes/cf-package.class'
@@ -19,6 +19,65 @@ export default class Index extends Command {
     {name: 'pkg', required: true},
   ]
 
+  protected readonly downloadBar = new SingleBar({}, Presets.shades_classic)
+
+  protected onDownloadStart(res: Response) {
+    this.debug('data headers', res.headers)
+    const disposition = contentDisposition.parse(res.headers['content-disposition']as string)
+    this.debug('contentDisposition', disposition)
+    this.log(`Downloading package (${disposition.parameters?.filename}) ...`)
+    const totalBytes = parseInt(res.headers['content-length'] as string, 10)
+    this.downloadBar.start(totalBytes, 0)
+  }
+
+  protected download(uri: string, out: fs.WriteStream) {
+    return new Promise((resolve, reject) => {
+      let receivedBytes = 0
+      request({method: 'GET',  uri})
+      .on('response', this.onDownloadStart)
+      .on('data', (chunk: any) => {
+        receivedBytes += chunk.length
+        this.downloadBar.update(receivedBytes)
+      })
+      .on('end', resolve)
+      .on('error', reject)
+      .pipe(out)
+    })
+  }
+
+  protected createPackageObj(param: string) {
+    const url = new Url(param)
+    if (!url.hostname.includes('civfanatics.com')) {
+      throw new Error()
+    }
+    this.debug('url related to civfanatics.com')
+
+    // Package ID extraction
+    const [,, name] = url.pathname.split('/')
+    this.debug('package name', name)
+    this.debug('extracting package id...')
+    const id = Number(name.replace(/^\D+/g, ''))
+    this.debug('extracted package id is', id)
+
+    if (!id) {
+      this.error('CivFanatics package ID can not be extracted from the url')
+      this.exit(1)
+    }
+
+    // Package version extraction
+    const query = querystring.parse(String(url.query).replace(/\?/, ''))
+    const version = Number(query.version)
+    this.debug('extracted version', version)
+
+    if (!version) {
+      this.error('CivFanatics package version can not be extracted from the url')
+      this.exit(1)
+    }
+    const pkg = new CFPackage(id, version)
+    this.debug('pkg obj', pkg)
+    return pkg
+  }
+
   async run() {
     const {args} = this.parse(Index)
     const btsDir = Index.config.get('btsDir') as string
@@ -26,82 +85,33 @@ export default class Index extends Command {
       this.error('Sid Meier’s: Beyond the Sword folder is not set')
       this.exit(1)
     }
-    this.debug('package arg', args.pkg)
-    const url = new Url(args.pkg)
-    let downloadUrl: string
-    if (url.hostname.includes('civfanatics.com')) {
-      this.debug('url related to civfanatics.com')
 
-      // Package ID extraction
-      const [,, name] = url.pathname.split('/')
-      this.debug('package name', name)
-      this.debug('extracting package id...')
-      const id = Number(name.replace(/^\D+/g, ''))
-      this.debug('extracted package id is', id)
-
-      if (!id) {
-        this.error('CivFanatics package ID can not be extracted from the url')
-        this.exit(1)
-      }
-
-      // Package version extraction
-      const query = querystring.parse(String(url.query).replace(/\?/, ''))
-      const version = Number(query.version)
-      this.debug('extracted version', version)
-
-      if (!version) {
-        this.error('CivFanatics package version can not be extracted from the url')
-        this.exit(1)
-      }
-      const pkg = new CFPackage(id, version)
-      downloadUrl = pkg.downloadUrl
-      this.debug('pkg obj', pkg)
-    }
-
-    const {path, cleanup} = await file()
     try {
+      this.debug('package arg', args.pkg)
+      const pkg = this.createPackageObj(args.pkg)
+      const {path, cleanup} = await file()
       this.debug('temp file path', path)
       this.log('Created temporary file:', path)
       const out = fs.createWriteStream(path)
-      const bar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic)
 
-      const req = request({
-        method: 'GET',
-        uri: downloadUrl,
-      })
-
-      let receivedBytes = 0
-
-      req
-      .on('error', async (err: Error) => {
-        bar.stop()
-        await cleanup()
-        this.error(err)
+      try {
+        await this.download(pkg.downloadUrl, out)
+      } catch (error) {
+        this.error(error)
         this.exit(1)
-      })
-      .on('data', (chunk: any) => {
-        receivedBytes += chunk.length
-        bar.update(receivedBytes)
-      })
-      .on('response', (data: any) => {
-        this.debug('data headers', data.headers)
-        const disposition = contentDisposition.parse(data.headers['content-disposition'])
-        this.log('contentDisposition', disposition)
-        this.log(`Downloading package (${disposition.parameters?.filename}) ...`)
-        const totalBytes = parseInt(data.headers['content-length'], 10)
-        bar.start(totalBytes, 0)
-      })
-      .on('end', async () => {
-        bar.stop()
-        cli.action.start('Cleanup temporary file ...')
-        await cleanup()
-        cli.action.stop()
-      })
-      .pipe(out)
-    } catch (error) {
+      } finally {
+        this.downloadBar.stop() // stop the progress bar in any case
+      }
+
+      // Cleanup temporary file
+      cli.action.start('Cleanup temporary file ...')
       await cleanup()
+      cli.action.stop()
+    } catch (error) {
       this.error(error)
       this.exit(1)
+    } finally {
+      cli.action.stop()
     }
   }
 }
