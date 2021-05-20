@@ -9,6 +9,9 @@ import {CFPackage} from './classes/cf-package.class'
 import {cli} from 'cli-ux'
 import {file} from 'tmp-promise'
 import Conf from 'conf'
+import StreamZip from 'node-stream-zip'
+import prompts from 'prompts'
+import execa from 'execa'
 
 export default abstract class BaseInstall extends Command {
   static args = [
@@ -30,7 +33,7 @@ export default abstract class BaseInstall extends Command {
     return new Promise((resolve, reject) => {
       let receivedBytes = 0
       request({method: 'GET',  uri})
-      .on('response', this.onDownloadStart)
+      .on('response', this.onDownloadStart.bind(this))
       .on('data', (chunk: any) => {
         receivedBytes += chunk.length
         this.downloadBar.update(receivedBytes)
@@ -109,10 +112,76 @@ export default abstract class BaseInstall extends Command {
         this.downloadBar.stop() // stop the progress bar in any case
       }
 
+      // Try to find mod config
+      // eslint-disable-next-line new-cap
+      const zip = new StreamZip.async({file: path})
+      // const zip = new StreamZip.async({file: 'C:\\Users\\pstra\\Downloads\\0171\\Europe.zip'})
+      const entries = await zip.entries()
+      cli.action.start('Reading zip-archive')
+      let packagePath
+      let packageName
+      for (const entry of Object.keys(entries)) {
+        cli.action.start(`Matching ${entry}`)
+        const match = entry.match(/(\S+\/)?(\S+)(\.ini$)/)
+        if (match) {
+          packagePath = match[1]
+          packageName = match[2]
+          cli.action.stop()
+          break
+        }
+      }
+
+      this.debug('packagePath', packagePath)
+      this.debug('packageName', packageName)
+
+      let counter = 0
+      this.log('is exists?', `${btsDir}\\Mods\\${packageName}`)
+      const isExists = fs.existsSync(`${btsDir}\\Mods\\${packageName}`)
+      if (isExists) {
+        do {
+          counter++
+        } while (fs.existsSync(`${btsDir}\\Mods\\${packageName} (${counter})`))
+      }
+      this.debug('counter', counter)
+      this.debug('isExists', isExists)
+      if (isExists) {
+        const {value} = await prompts({
+          type: 'confirm',
+          name: 'value',
+          message: `Folder "${packageName}" is already exists. Do you want to install mod to folder "${packageName} (${counter})" ?`,
+          initial: true,
+        })
+        this.debug(value)
+        if (!value) {
+          this.exit(1)
+        }
+      }
+      const outPath = `${btsDir}\\mods\\${packageName}${counter ? ` (${counter})` : ''}`
+      await fs.promises.mkdir(outPath, {recursive: true})
+      zip.on('extract', entry => {
+        cli.action.start(`Extracting ${entry.name}`)
+      })
+      await zip.extract(packagePath as string, outPath)
+      cli.action.stop('Archive has been successfully extracted')
+      await zip.close()
+
       // Cleanup temporary file
       cli.action.start('Cleanup temporary file ...')
       await cleanup()
       cli.action.stop()
+
+      const {value} = await prompts({
+        type: 'confirm',
+        name: 'value',
+        message: `Do you want to run the game with the installed mod (${'packageName'}) ?`,
+        initial: true,
+      })
+
+      if (value) {
+        const r = await execa('cmd', ['/c', `${btsDir}\\Civ4BeyondSword.exe`], {detached: true})
+        console.log('r', r)
+        // await execa(`cmd /K "${btsDir}\\Civ4BeyondSword.exe" mod=\\${packageName}`)
+      }
     } catch (error) {
       this.error(error)
       this.exit(1)
